@@ -21,20 +21,30 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * The solution starts a child worker process for the actual work such that clean up of the memory mapping can occur
- * while the main process already returns with the result. The worker then memory maps the input file, creates a worker
- * thread per available core, and then processes segments of size {@link #SEGMENT_SIZE} at a time. The segments are
- * split into 3 parts and cursors for each of those parts are processing the segment simultaneously in the same thread.
- * Results are accumulated into {@link Result} objects and a tree map is used to sequentially accumulate the results in
+ * The solution starts a child worker process for the actual work such that
+ * clean up of the memory mapping can occur
+ * while the main process already returns with the result. The worker then
+ * memory maps the input file, creates a worker
+ * thread per available core, and then processes segments of size
+ * {@link #SEGMENT_SIZE} at a time. The segments are
+ * split into 3 parts and cursors for each of those parts are processing the
+ * segment simultaneously in the same thread.
+ * Results are accumulated into {@link Result} objects and a tree map is used to
+ * sequentially accumulate the results in
  * the end.
- * Runs in 0.31 on an Intel i9-13900K while the reference implementation takes 120.37s.
+ * Runs in 0.31 on an Intel i9-13900K while the reference implementation takes
+ * 120.37s.
  * Credit:
- *  Quan Anh Mai for branchless number parsing code
- *  Alfonso² Peterssen for suggesting memory mapping with unsafe and the subprocess idea
- *  Artsiom Korzun for showing the benefits of work stealing at 2MB segments instead of equal split between workers
- *  Jaromir Hamala for showing that avoiding the branch misprediction between <8 and 8-16 cases is a big win even if
- *  more work is performed
- *  Van Phu DO for demonstrating the lookup tables based on masks instead of bit shifting
+ * Quan Anh Mai for branchless number parsing code
+ * Alfonso² Peterssen for suggesting memory mapping with unsafe and the
+ * subprocess idea
+ * Artsiom Korzun for showing the benefits of work stealing at 2MB segments
+ * instead of equal split between workers
+ * Jaromir Hamala for showing that avoiding the branch misprediction between <8
+ * and 8-16 cases is a big win even if
+ * more work is performed
+ * Van Phu DO for demonstrating the lookup tables based on masks instead of bit
+ * shifting
  */
 public class CalculateAverage_thomaswue {
     private static final String FILE = "./measurements.txt";
@@ -45,9 +55,11 @@ public class CalculateAverage_thomaswue {
     private static final int SEGMENT_SIZE = 1 << 21;
     private static final int HASH_TABLE_SIZE = 1 << 17;
 
-    public static void main(String[] args) throws IOException, InterruptedException {
+    public static void main(String[] args) throws IOException, InterruptedException 
+    {
         // Start worker subprocess if this process is not the worker.
-        if (args.length == 0 || !("--worker".equals(args[0]))) {
+        if (args.length == 0 || !("--worker".equals(args[0])))
+        {
             spawnWorker();
             return;
         }
@@ -81,17 +93,25 @@ public class CalculateAverage_thomaswue {
         }
     }
 
-    private static void spawnWorker() throws IOException {
+    // This method spawns a new worker process.
+    private static void spawnWorker() throws IOException 
+    {
+        // Retrieves information about the current process.
         ProcessHandle.Info info = ProcessHandle.current().info();
+        // Creates a list to store the command and arguments for the worker process.
         ArrayList<String> workerCommand = new ArrayList<>();
+        // Adds the command of the current process to the list if present.
         info.command().ifPresent(workerCommand::add);
+        // Adds the arguments of the current process to the list if present.
         info.arguments().ifPresent(args -> workerCommand.addAll(Arrays.asList(args)));
+        // Adds "--worker" to the list to indicate that it's a worker process.
         workerCommand.add("--worker");
         new ProcessBuilder().command(workerCommand).inheritIO().redirectOutput(ProcessBuilder.Redirect.PIPE)
                 .start().getInputStream().transferTo(System.out);
     }
 
-    private static TreeMap<String, Result> accumulateResults(List<Result>[] allResults) {
+    private static TreeMap<String, Result> accumulateResults(List<Result>[] allResults) 
+    {
         TreeMap<String, Result> result = new TreeMap<>();
         for (List<Result> resultArr : allResults) {
             for (Result r : resultArr) {
@@ -104,20 +124,24 @@ public class CalculateAverage_thomaswue {
         return result;
     }
 
-    private static void parseLoop(AtomicLong counter, long fileEnd, long fileStart, List<Result> collectedResults) {
+    private static void parseLoop(AtomicLong counter, long fileEnd, long fileStart, List<Result> collectedResults) 
+    {
         Result[] results = new Result[HASH_TABLE_SIZE];
-        while (true) {
+        while (true) 
+        {
             long current = counter.addAndGet(SEGMENT_SIZE) - SEGMENT_SIZE;
-            if (current >= fileEnd) {
+            if (current >= fileEnd) 
+            {
                 return;
             }
 
             long segmentEnd = nextNewLine(Math.min(fileEnd - 1, current + SEGMENT_SIZE));
             long segmentStart;
-            if (current == fileStart) {
+            if (current == fileStart) 
+            {
                 segmentStart = current;
-            }
-            else {
+            } else 
+            {
                 segmentStart = nextNewLine(current) + 1;
             }
 
@@ -125,19 +149,20 @@ public class CalculateAverage_thomaswue {
             long midPoint1 = nextNewLine(segmentStart + dist);
             long midPoint2 = nextNewLine(segmentStart + dist + dist);
 
+            // Work on three scanner to optimize the performance
             Scanner scanner1 = new Scanner(segmentStart, midPoint1);
             Scanner scanner2 = new Scanner(midPoint1 + 1, midPoint2);
             Scanner scanner3 = new Scanner(midPoint2 + 1, segmentEnd);
-            while (true) {
-                if (!scanner1.hasNext()) {
-                    break;
+
+            // Infinite loop to iterate through elements until there are none left.
+            while (true) 
+            {
+                // Checks if scanner1-2-3 has a next element.
+                if (!scanner1.hasNext() || !scanner2.hasNext () || !scanner3.hasNext()) 
+                {
+                    break; // If scanner1-2-3 has no more next elements, break out of the loop.
                 }
-                if (!scanner2.hasNext()) {
-                    break;
-                }
-                if (!scanner3.hasNext()) {
-                    break;
-                }
+                
                 long word1 = scanner1.getLong();
                 long word2 = scanner2.getLong();
                 long word3 = scanner3.getLong();
@@ -150,32 +175,38 @@ public class CalculateAverage_thomaswue {
                 long delimiterMask1b = findDelimiter(word1b);
                 long delimiterMask2b = findDelimiter(word2b);
                 long delimiterMask3b = findDelimiter(word3b);
-                Result existingResult1 = findResult(word1, delimiterMask1, word1b, delimiterMask1b, scanner1, results, collectedResults);
-                Result existingResult2 = findResult(word2, delimiterMask2, word2b, delimiterMask2b, scanner2, results, collectedResults);
-                Result existingResult3 = findResult(word3, delimiterMask3, word3b, delimiterMask3b, scanner3, results, collectedResults);
+                
+                Result existingResult1 = findResult(word1, delimiterMask1, word1b, delimiterMask1b, scanner1, results,collectedResults);
+                Result existingResult2 = findResult(word2, delimiterMask2, word2b, delimiterMask2b, scanner2, results,collectedResults);
+                Result existingResult3 = findResult(word3, delimiterMask3, word3b, delimiterMask3b, scanner3, results,collectedResults);
+                
                 long number1 = scanNumber(scanner1);
                 long number2 = scanNumber(scanner2);
                 long number3 = scanNumber(scanner3);
+               
                 record(existingResult1, number1);
                 record(existingResult2, number2);
                 record(existingResult3, number3);
             }
 
-            while (scanner1.hasNext()) {
+            while (scanner1.hasNext()) 
+            {
                 long word = scanner1.getLong();
                 long pos = findDelimiter(word);
                 long wordB = scanner1.getLongAt(scanner1.pos() + 8);
                 long posB = findDelimiter(wordB);
                 record(findResult(word, pos, wordB, posB, scanner1, results, collectedResults), scanNumber(scanner1));
             }
-            while (scanner2.hasNext()) {
+            while (scanner2.hasNext()) 
+            {
                 long word = scanner2.getLong();
                 long pos = findDelimiter(word);
                 long wordB = scanner2.getLongAt(scanner2.pos() + 8);
                 long posB = findDelimiter(wordB);
                 record(findResult(word, pos, wordB, posB, scanner2, results, collectedResults), scanNumber(scanner2));
             }
-            while (scanner3.hasNext()) {
+            while (scanner3.hasNext()) 
+            {
                 long word = scanner3.getLong();
                 long pos = findDelimiter(word);
                 long wordB = scanner3.getLongAt(scanner3.pos() + 8);
@@ -185,12 +216,18 @@ public class CalculateAverage_thomaswue {
         }
     }
 
-    private static final long[] MASK1 = new long[]{ 0xFFL, 0xFFFFL, 0xFFFFFFL, 0xFFFFFFFFL, 0xFFFFFFFFFFL, 0xFFFFFFFFFFFFL, 0xFFFFFFFFFFFFFFL, 0xFFFFFFFFFFFFFFFFL,
-            0xFFFFFFFFFFFFFFFFL };
-    private static final long[] MASK2 = new long[]{ 0x00L, 0x00L, 0x00L, 0x00L, 0x00L, 0x00L, 0x00L, 0x00L, 0xFFFFFFFFFFFFFFFFL };
+    private static final long[] MASK1 = new long[] 
+    { 
+        0xFFL, 0xFFFFL, 0xFFFFFFL, 0xFFFFFFFFL, 0xFFFFFFFFFFL,0xFFFFFFFFFFFFL, 0xFFFFFFFFFFFFFFL, 0xFFFFFFFFFFFFFFFFL,0xFFFFFFFFFFFFFFFFL 
+    };
+    private static final long[] MASK2 = new long[] 
+    { 
+        0x00L, 0x00L, 0x00L, 0x00L, 0x00L, 0x00L, 0x00L, 0x00L,0xFFFFFFFFFFFFFFFFL 
+    };
 
-    private static Result findResult(long initialWord, long initialDelimiterMask, long wordB, long delimiterMaskB, Scanner scanner, Result[] results,
-                                     List<Result> collectedResults) {
+    private static Result findResult(long initialWord, long initialDelimiterMask, long wordB, long delimiterMaskB,
+            Scanner scanner, Result[] results,
+            List<Result> collectedResults) {
         Result existingResult;
         long word = initialWord;
         long delimiterMask = initialDelimiterMask;
@@ -207,11 +244,11 @@ public class CalculateAverage_thomaswue {
             hash = word ^ word2;
             existingResult = results[hashToIndex(hash, results)];
             scanner.add(letterCount1 + (letterCount2 & mask));
-            if (existingResult != null && existingResult.firstNameWord == word && existingResult.secondNameWord == word2) {
+            if (existingResult != null && existingResult.firstNameWord == word
+                    && existingResult.secondNameWord == word2) {
                 return existingResult;
             }
-        }
-        else {
+        } else {
             // Slow-path for when the ';' could not be found in the first 16 bytes.
             hash = word ^ word2;
             scanner.add(16);
@@ -224,8 +261,7 @@ public class CalculateAverage_thomaswue {
                     scanner.add(trailingZeros >>> 3);
                     hash ^= word;
                     break;
-                }
-                else {
+                } else {
                     scanner.add(8);
                     hash ^= word;
                 }
@@ -253,10 +289,10 @@ public class CalculateAverage_thomaswue {
             }
 
             int remainingShift = (64 - ((nameLength + 1 - i) << 3));
-            if (((scanner.getLongAt(existingResult.nameAddress + i) ^ (scanner.getLongAt(nameAddress + i))) << remainingShift) == 0) {
+            if (((scanner.getLongAt(existingResult.nameAddress + i)
+                    ^ (scanner.getLongAt(nameAddress + i))) << remainingShift) == 0) {
                 break;
-            }
-            else {
+            } else {
                 // Collision error, try next.
                 tableIndex = (tableIndex + 31) & (results.length - 1);
             }
@@ -272,8 +308,7 @@ public class CalculateAverage_thomaswue {
             if (pos != 0) {
                 prev += Long.numberOfTrailingZeros(pos) >>> 3;
                 break;
-            }
-            else {
+            } else {
                 prev += 8;
             }
         }
@@ -304,15 +339,18 @@ public class CalculateAverage_thomaswue {
         return (int) (hashAsInt & (results.length - 1));
     }
 
-    // Special method to convert a number in the ascii number into an int without branches created by Quan Anh Mai.
+    // Special method to convert a number in the ascii number into an int without
+    // branches created by Quan Anh Mai.
     private static long convertIntoNumber(int decimalSepPos, long numberWord) {
         int shift = 28 - decimalSepPos;
         // signed is -1 if negative, 0 otherwise
         long signed = (~numberWord << 59) >> 63;
         long designMask = ~(signed & 0xFF);
-        // Align the number to a specific position and transform the ascii to digit value
+        // Align the number to a specific position and transform the ascii to digit
+        // value
         long digits = ((numberWord & designMask) << shift) & 0x0F000F0F00L;
-        // Now digits is in the form 0xUU00TTHH00 (UU: units digit, TT: tens digit, HH: hundreds digit)
+        // Now digits is in the form 0xUU00TTHH00 (UU: units digit, TT: tens digit, HH:
+        // hundreds digit)
         // 0xUU00TTHH00 * (100 * 0x1000000 + 10 * 0x10000 + 1) =
         // 0x000000UU00TTHH00 + 0x00UU00TTHH000000 * 10 + 0xUU00TTHH00000000 * 100
         long absValue = ((digits * 0x640a0001) >>> 32) & 0x3FF;
@@ -324,7 +362,8 @@ public class CalculateAverage_thomaswue {
         return (input - 0x0101010101010101L) & ~input & 0x8080808080808080L;
     }
 
-    private static Result newEntry(Result[] results, long nameAddress, int hash, int nameLength, Scanner scanner, List<Result> collectedResults) {
+    private static Result newEntry(Result[] results, long nameAddress, int hash, int nameLength, Scanner scanner,
+            List<Result> collectedResults) {
         Result r = new Result();
         results[hash] = r;
         int totalLength = nameLength + 1;
@@ -333,8 +372,7 @@ public class CalculateAverage_thomaswue {
         if (totalLength <= 8) {
             r.firstNameWord = r.firstNameWord & MASK1[totalLength - 1];
             r.secondNameWord = 0;
-        }
-        else if (totalLength < 16) {
+        } else if (totalLength < 16) {
             r.secondNameWord = r.secondNameWord & MASK1[totalLength - 9];
         }
         r.nameAddress = nameAddress;
@@ -355,7 +393,8 @@ public class CalculateAverage_thomaswue {
         }
 
         public String toString() {
-            return round(((double) min) / 10.0) + "/" + round((((double) sum) / 10.0) / count) + "/" + round(((double) max) / 10.0);
+            return round(((double) min) / 10.0) + "/" + round((((double) sum) / 10.0) / count) + "/"
+                    + round(((double) max) / 10.0);
         }
 
         private static double round(double value) {
@@ -397,8 +436,7 @@ public class CalculateAverage_thomaswue {
                 java.lang.reflect.Field theUnsafe = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
                 theUnsafe.setAccessible(true);
                 return (sun.misc.Unsafe) theUnsafe.get(sun.misc.Unsafe.class);
-            }
-            catch (NoSuchFieldException | IllegalAccessException e) {
+            } catch (NoSuchFieldException | IllegalAccessException e) {
                 throw new RuntimeException(e);
             }
         }
